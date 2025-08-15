@@ -4,49 +4,205 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>扩展使用统计</title>
+    <title>用户统计面板</title>
     <style>
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f7f9fc;
+            color: #333;
+        }
+
+        h1 {
+            color: #2c3e50;
             text-align: center;
-            margin-top: 100px;
         }
 
-        .count {
-            font-size: 3rem;
-            color: #0070f3;
+        .stats {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 30px;
+            text-align: center;
         }
 
-        .footer {
-            margin-top: 2rem;
-            color: #666;
+        .recent {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            background-color: #6495ED;
+            color: white;
+            font-weight: 600;
+        }
+
+        tr:hover {
+            background-color: #f0f5ff;
+        }
+
+        .loading {
+            text-align: center;
+            color: #777;
+            font-style: italic;
+        }
+
+        .error {
+            color: #e74c3c;
+            text-align: center;
+            font-weight: bold;
         }
     </style>
 </head>
 
 <body>
-    <h1>🎉 我的浏览器扩展使用统计</h1>
-    <p>每有一个用户使用，计数 +1</p>
-    <p>当前使用人数：<span class="count" id="counter">加载中...</span></p>
-    <div class="footer">
-        <p>数据每 5 秒自动刷新一次</p>
-        <p>部署在 Vercel，7x24 小时运行</p>
+    <h1>📊 浏览器扩展使用统计</h1>
+
+    <div class="stats">
+        <h2>当前使用人数：<span id="count">加载中...</span></h2>
+        <p>Unique Users: <span id="unique">加载中...</span></p>
     </div>
 
+    <h2>🔍 最近 10 位用户</h2>
+    <table id="userTable">
+        <thead>
+            <tr>
+                <th>序号</th>
+                <th>IP 地址</th>
+                <th>登录时间</th>
+                <th>操作系统</th>
+                <th>浏览器</th>
+                <th>设备类型</th>
+            </tr>
+        </thead>
+        <tbody id="userList">
+            <tr>
+                <td colspan="6" class="loading">加载中...</td>
+            </tr>
+        </tbody>
+    </table>
+
     <script>
-        async function updateCount() {
+        // 简单解析 User Agent 的函数
+        function parseUserAgent(ua) {
+            const osMap = {
+                'Windows NT 10.0': 'Windows 10',
+                'Windows NT 11.0': 'Windows 11',
+                'Mac OS X': 'macOS',
+                'Linux': 'Linux',
+                'Android': 'Android',
+                'iPhone': 'iOS (iPhone)',
+                'iPad': 'iOS (iPad)'
+            };
+            const browserMap = {
+                'Chrome': 'Chrome',
+                'Firefox': 'Firefox',
+                'Safari': 'Safari',
+                'Edg': 'Edge',
+                'Opera': 'Opera',
+                'MSIE': 'IE'
+            };
+
+            let os = 'Unknown';
+            let browser = 'Unknown';
+            let device = 'Desktop';
+
+            for (const [key, value] of Object.entries(osMap)) {
+                if (ua.includes(key)) {
+                    os = value;
+                    break;
+                }
+            }
+
+            for (const [key, value] of Object.entries(browserMap)) {
+                if (ua.includes(key)) {
+                    browser = value;
+                    break;
+                }
+            }
+
+            if (os.includes('Android') || os.includes('iOS')) {
+                device = 'Mobile';
+            } else if (/Mobile/.test(ua)) {
+                device = 'Mobile';
+            }
+
+            return { os, browser, device };
+        }
+
+        // 格式化时间
+        function formatTime(isoString) {
+            return new Date(isoString).toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        // 获取统计数据
+        async function loadStats() {
             try {
                 const res = await fetch('/api/count');
                 const data = await res.json();
-                document.getElementById('counter').textContent = data.currentCount;
+
+                document.getElementById('count').textContent = data.currentCount || 0;
+                document.getElementById('unique').textContent = data.uniqueUsers || 0;
+
+                const list = document.getElementById('userList');
+                list.innerHTML = '';
+
+                if (!data.recentUsers || data.recentUsers.length === 0) {
+                    list.innerHTML = '<tr><td colspan="6" class="loading">暂无用户数据</td></tr>';
+                    return;
+                }
+
+                // 只取最近 10 条
+                const recent = data.recentUsers.slice(0, 10);
+
+                recent.forEach((user, index) => {
+                    const { os, browser, device } = parseUserAgent(user.userAgent);
+
+                    const row = document.createElement('tr');
+                    row.innerHTML = `
+            <td>${index + 1}</td>
+            <td><code>${user.ip || 'Unknown'}</code></td>
+            <td>${formatTime(user.timestamp)}</td>
+            <td>${os}</td>
+            <td>${browser}</td>
+            <td>${device}</td>
+          `;
+                    list.appendChild(row);
+                });
+
             } catch (err) {
-                document.getElementById('counter').textContent = '无法加载';
+                document.getElementById('userList').innerHTML =
+                    '<tr><td colspan="6" class="error">加载失败：' + err.message + '</td></tr>';
+                console.error(err);
             }
         }
 
-        // 首次加载 + 每 5 秒刷新
-        updateCount();
-        setInterval(updateCount, 5000);
+        // 页面加载完成后获取数据
+        window.addEventListener('load', loadStats);
     </script>
 </body>
 
